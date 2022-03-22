@@ -16,6 +16,7 @@ contract Sessions {
     // 0...6 -> Sunday...Saturday
     mapping(address => mapping(uint8 => uint256))
         private profileGeneralAvailability;
+    mapping(address => uint256) private profilePrice;
 
     constructor(address _gov) {
         gov = _gov;
@@ -81,10 +82,12 @@ contract Sessions {
         );
     }
 
-    function updatePricing(address _profile, uint256[] calldata prices)
+    function updatePricing(address _profile, uint256 price)
         external
         onlyProfileOwner
-    {}
+    {
+        profilePrice[_profile] = price;
+    }
 
     function updateGeneralAvailability(uint8 dayOfWeek, uint256 availableSlots)
         external
