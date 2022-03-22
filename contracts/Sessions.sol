@@ -61,11 +61,15 @@ contract Sessions {
         uint256 slotsByDayLen = _slotsByDay.length;
         require(dateLen == slotsByDayLen, "invalid dates/slots length");
         for (uint256 i = 0; i < dateLen; i++) {
-            _book(_profile, DateTime.toTimestamp(_dates[i]), _slotsByDay[i]);
+            bookOnDate(
+                _profile,
+                DateTime.toTimestamp(_dates[i]),
+                _slotsByDay[i]
+            );
         }
     }
 
-    function _book(
+    function bookOnDate(
         address _profile,
         uint32 _date,
         uint8[] calldata _slots
