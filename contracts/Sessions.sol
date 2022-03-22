@@ -98,10 +98,20 @@ contract Sessions {
         profilePrice[_profile] = price;
     }
 
-    function updateGeneralAvailability(uint8 dayOfWeek, uint256 availableSlots)
-        external
-        onlyProfileOwner
-    {}
+    function updateGeneralAvailability(
+        uint8[] calldata dayOfWeek,
+        uint256[] calldata availableSlots
+    ) external onlyProfileOwner  {
+        uint256 len = dayOfWeek.length;
+        require(len == availableSlots.length, "invalid dayOfWeek/availableSlots length");
+        for (uint256 i = 0; i < len; i++) {
+            uint8 day = dayOfWeek[i];
+            uint256 slots = availableSlots[i];
+            require(day < 7, "dayOfWeek out of range");
+            require(slots <= 2**240, "availableSlots out of range");
+            profileGeneralAvailability[msg.sender][day] = slots;
+        }
+    }
 
     function reschedule(address _profile, uint256[] calldata slots)
         external
