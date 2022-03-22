@@ -35,7 +35,7 @@ contract Sessions {
     modifier validateSlotIndex(uint8[] calldata _slots) {
         uint256 len = _slots.length;
         for (uint256 i = 0; i < len; i++) {
-            require(_slots[i] <= 240, "slot index out of range");
+            require(_slots[i] < 240, "slot index out of range");
         }
         _;
     }
