@@ -2,16 +2,18 @@
 pragma solidity ^0.8.0;
 
 import "hardhat/console.sol";
+import "./DateTime.sol";
 
 contract Sessions {
     address private gov;
 
     // profile -> date -> slots, 6 minutes per slot, 240 bits for a day
     // 0 -> unlock, 1 -> locked
-    mapping(address => mapping(uint64 => uint256)) private profileCalendar;
+    mapping(address => mapping(uint32 => uint256)) private profileCalendar;
 
     // profile -> dayOfWeek -> available slots
     // 0 -> not available, 1 -> available for book
+    // 0...6 -> Sunday...Saturday
     mapping(address => mapping(uint8 => uint256))
         private profileGeneralAvailability;
 
@@ -19,13 +21,14 @@ contract Sessions {
         gov = _gov;
     }
 
-    modifier onlyProfileOwner(address _profile) {
-        require(msg.sender == _profile, "!profileOwner");
+    modifier onlyProfileOwner() {
+        // TODO: check if msg.sender have a profile
+        // require(msg.sender != , "!profileOwner");
         _;
     }
 
-    modifier onlyInFeature(uint64 _date) {
-        require(_date < block.timestamp, "!inFeature");
+    modifier onlyInFeature(uint32 _date) {
+        require(_date > block.timestamp, "!inFeature");
         _;
     }
 
@@ -45,20 +48,20 @@ contract Sessions {
 
     function book(
         address _profile,
-        uint64[] calldata _dates,
+        DateTime.Date[] calldata _dates,
         uint8[][] calldata _slotsByDay
     ) external {
         uint256 dateLen = _dates.length;
         uint256 slotsByDayLen = _slotsByDay.length;
         require(dateLen == slotsByDayLen, "invalid dates/slots length");
         for (uint256 i = 0; i < dateLen; i++) {
-            _book(_profile, _dates[i], _slotsByDay[i]);
+            _book(_profile, DateTime.toTimestamp(_dates[i]), _slotsByDay[i]);
         }
     }
 
     function _book(
         address _profile,
-        uint64 _date,
+        uint32 _date,
         uint8[] calldata _slots
     )
         internal
@@ -68,7 +71,7 @@ contract Sessions {
     {
         uint256 calendar = profileCalendar[_profile][_date];
         uint256 generalAvailability = profileGeneralAvailability[_profile][
-            getWeekday(_date)
+            DateTime.getWeekday(_date)
         ];
         // lock slots
         profileCalendar[_profile][_date] = lockSlots(
@@ -80,18 +83,17 @@ contract Sessions {
 
     function updatePricing(address _profile, uint256[] calldata prices)
         external
-        onlyProfileOwner(_profile)
+        onlyProfileOwner
     {}
 
-    function changeGeneralAvailability(
-        address _profile,
-        uint8 dayOfWeek,
-        uint256 availableSlots
-    ) external onlyProfileOwner(_profile) {}
+    function updateGeneralAvailability(uint8 dayOfWeek, uint256 availableSlots)
+        external
+        onlyProfileOwner
+    {}
 
     function reschedule(address _profile, uint256[] calldata slots)
         external
-        onlyProfileOwner(_profile)
+        onlyProfileOwner
     {}
 
     function isSlotsAvailable(
@@ -114,11 +116,6 @@ contract Sessions {
 
     function isBitSet(uint256 data, uint8 index) internal pure returns (bool) {
         return (data >> index) & uint256(1) == 1;
-    }
-
-    function getWeekday(uint64 _date) internal pure returns (uint8) {
-        // 0...6 -> Sunday...Saturday
-        return uint8((_date / 86400 + 4) % 7);
     }
 
     function lockSlots(
