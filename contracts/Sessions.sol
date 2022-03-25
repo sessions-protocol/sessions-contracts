@@ -28,7 +28,7 @@ contract Sessions is ISessions, Manager, Treasury {
         address user,
         string memory name,
         uint256[7] calldata availableSlots
-    ) external onlyManagerOrUser(user) {
+    ) external  onlyManagerOrSelf(user) {
         // TODO: validate input data
         availabilityByUser[user].push(
             Availability({
@@ -42,7 +42,7 @@ contract Sessions is ISessions, Manager, Treasury {
 
     function archivedAvailability(address user, uint32 id)
         external
-        onlyManagerOrUser(user)
+        onlyManagerOrSelf(user)
     {
         require(id <= availabilityByUser[user].length, "!availabilityId");
         uint32 i = id - 1;
@@ -67,7 +67,7 @@ contract Sessions is ISessions, Manager, Treasury {
         uint32 id,
         string calldata name,
         uint256[7] calldata availableSlots
-    ) external onlyManagerOrUser(user) {
+    ) external onlyManagerOrSelf(user) {
         // TODO: validate input data
         require(id <= availabilityByUser[user].length, "!availabilityId");
         uint32 i = id - 1;
@@ -121,7 +121,7 @@ contract Sessions is ISessions, Manager, Treasury {
         uint256 amount
     )
         external
-        onlyManagerOrUser(user)
+        onlyManagerOrSelf(user)
         returns (SessionType memory sessionType)
     {
         sessionType = SessionType({
@@ -142,7 +142,7 @@ contract Sessions is ISessions, Manager, Treasury {
 
     function archivedSessionType(address user, uint32 id)
         external
-        onlyManagerOrUser(user)
+        onlyManagerOrSelf(user)
     {
         require(id <= sessionTypeByUser[user].length, "!availabilityId");
         uint32 i = id - 1;
@@ -172,7 +172,7 @@ contract Sessions is ISessions, Manager, Treasury {
         string calldata description,
         address token,
         uint256 amount
-    ) external onlyManagerOrUser(user) {
+    ) external onlyManagerOrSelf(user) {
         // TODO: validate input data
         require(id <= sessionTypeByUser[user].length, "!availabilityId");
         uint32 i = id - 1;
@@ -195,7 +195,7 @@ contract Sessions is ISessions, Manager, Treasury {
         Date calldata date,
         uint8[] calldata slots,
         uint32 sessionTypeId
-    ) external payable onlyManagerOrUser(buyer) validSlotIndex(slots) onlyInFeature(date) {
+    ) external payable onlyManagerOrSelf(buyer) validSlotIndex(slots) onlyInFeature(date) {
         uint32 timestamp = DateTime.toTimestamp(date);
         uint256 calendar = calendarByUserByDate[seller][timestamp];
         SessionType memory sessionType = getSessionType(seller, sessionTypeId);
