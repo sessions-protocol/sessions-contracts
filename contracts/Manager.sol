@@ -9,10 +9,10 @@ abstract contract Manager {
         require(managerWhitelist[msg.sender], "!whitelisted");
         _;
     }
-    modifier onlyManagerOrUser(address user) {
+    modifier onlyManagerOrSelf(address self) {
         require(
-            managerWhitelist[msg.sender] || msg.sender == user,
-            "!manager or user"
+            managerWhitelist[msg.sender] || msg.sender == self,
+            "!manager or self"
         );
         _;
     }

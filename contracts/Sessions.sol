@@ -195,7 +195,7 @@ contract Sessions is ISessions, Manager, Treasury {
         Date calldata date,
         uint8[] calldata slots,
         uint32 sessionTypeId
-    ) external validSlotIndex(slots) onlyInFeature(date) {
+    ) external onlyManagerOrUser(buyer) validSlotIndex(slots) onlyInFeature(date) {
         uint32 timestamp = DateTime.toTimestamp(date);
         uint256 calendar = calendarByUserByDate[seller][timestamp];
         SessionType memory sessionType = getSessionType(seller, sessionTypeId);
