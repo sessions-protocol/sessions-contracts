@@ -3,7 +3,7 @@ import "./Manager.sol";
 
 contract Treasury is Manager {
     uint16 internal constant BPS_MAX = 10000;
-    mapping(address => bool) internal currencyWhitelisted;
+    mapping(address => bool) internal tokenWhitelisted;
     address internal treasury;
     uint16 internal treasuryFee;
 
@@ -16,11 +16,11 @@ contract Treasury is Manager {
         require(newTreasuryFee < BPS_MAX / 2, "invalid treasury fee");
         treasuryFee = newTreasuryFee;
     }
-    function whitelistCurrency(address currency, bool toWhitelist)
+    function whitelistCurrency(address token, bool toWhitelist)
         external
         onlyGov
     {
-        require(currency != address(0));
-        currencyWhitelisted[currency] = toWhitelist;
+        require(token != address(0));
+        tokenWhitelisted[token] = toWhitelist;
     }
 }

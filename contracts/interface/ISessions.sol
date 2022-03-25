@@ -38,6 +38,7 @@ interface ISessions {
 
     function createSessionType(
         address user,
+        address recipient,
         uint32 availabilityId,
         uint8 durationInSlot,
         string calldata title,

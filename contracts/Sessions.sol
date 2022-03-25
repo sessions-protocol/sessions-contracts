@@ -6,27 +6,77 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import "hardhat/console.sol";
 import "./DateTime.sol";
 import "./Manager.sol";
-import "./AvailabilityStore.sol";
-import "./SessionTypeStore.sol";
 import "./Treasury.sol";
+import "./interface/ISessions.sol";
 
-contract Sessions is Manager, SessionTypeStore, AvailabilityStore, Treasury {
+contract Sessions is ISessions, Manager, Treasury {
     using SafeERC20 for IERC20;
 
     // user -> date -> slots, 6 minutes per slot, 240 bits for a day
     // 0 -> unlock, 1 -> locked
     mapping(address => mapping(uint32 => uint256)) private calendarByUserByDate;
+    mapping(address => SessionType[]) private sessionTypeByUser;
+    mapping(address => Availability[]) private availabilityByUser;
 
     constructor(address _gov, address manager) {
         require(_gov != address(0), "!gov");
-        whitelist(manager, true);
+        whitelistManager(manager, true);
         gov = _gov;
     }
 
-    modifier onlyProfileOwner() {
-        // TODO: check if msg.sender have a user
-        // require(msg.sender != , "!userOwner");
-        _;
+    function createAvailability(
+        address user,
+        string memory name,
+        uint256[7] calldata availableSlots
+    ) external onlyManagerOrUser(user) {
+        // TODO: validate input data
+        availabilityByUser[user].push(
+            Availability({
+                id: uint32(availabilityByUser[user].length) + 1,
+                availableSlots: availableSlots,
+                name: name,
+                archived: false
+            })
+        );
+    }
+
+    function archivedAvailability(address user, uint32 id)
+        external
+        onlyManagerOrUser(user)
+    {
+        require(id <= availabilityByUser[user].length, "!availabilityId");
+        uint32 i = id - 1;
+        require(
+            availabilityByUser[user][i].archived == false,
+            "already archived"
+        );
+        availabilityByUser[msg.sender][i].archived = true;
+    }
+
+    function getAvailability(address user, uint32 id)
+        public
+        view
+        returns (Availability memory)
+    {
+        require(id <= availabilityByUser[user].length, "!availabilityId");
+        return availabilityByUser[user][id - 1];
+    }
+
+    function updateAvailability(
+        address user,
+        uint32 id,
+        string calldata name,
+        uint256[7] calldata availableSlots
+    ) external onlyManagerOrUser(user) {
+        // TODO: validate input data
+        require(id <= availabilityByUser[user].length, "!availabilityId");
+        uint32 i = id - 1;
+        availabilityByUser[user][i] = Availability({
+            id: id,
+            availableSlots: availableSlots,
+            name: name,
+            archived: availabilityByUser[user][i].archived
+        });
     }
 
     modifier onlyInFeature(Date memory date) {
@@ -48,10 +98,95 @@ contract Sessions is Manager, SessionTypeStore, AvailabilityStore, Treasury {
         _;
     }
 
-    modifier userGuard(address user) {
-        // TODO: check if user is allowed to access this user
-        // require(msg.sender == , "!Authorized");
-        _;
+    function _validateSessionType(address user, SessionType memory sessionType)
+        internal
+        view
+        returns (bool)
+    {
+        if (!tokenWhitelisted[sessionType.token]) return false;
+        if (sessionType.recipient == address(0)) return false;
+        if (sessionType.availabilityId >= availabilityByUser[user].length)
+            return false;
+        return true;
+    }
+
+    function createSessionType(
+        address user,
+        address recipient,
+        uint32 availabilityId,
+        uint8 durationInSlot,
+        string calldata title,
+        string calldata description,
+        address token,
+        uint256 amount
+    )
+        external
+        onlyManagerOrUser(user)
+        returns (SessionType memory sessionType)
+    {
+        sessionType = SessionType({
+            id: uint32(sessionTypeByUser[user].length) + 1,
+            recipient: recipient,
+            availabilityId: availabilityId,
+            durationInSlot: durationInSlot,
+            title: title,
+            description: description,
+            archived: false,
+            token: token,
+            amount: amount
+        });
+        require(_validateSessionType(user, sessionType), "invalid sessionType");
+
+        sessionTypeByUser[user].push(sessionType);
+    }
+
+    function archivedSessionType(address user, uint32 id)
+        external
+        onlyManagerOrUser(user)
+    {
+        require(id <= sessionTypeByUser[user].length, "!availabilityId");
+        uint32 i = id - 1;
+        require(
+            sessionTypeByUser[user][i].archived == false,
+            "already archived"
+        );
+        sessionTypeByUser[msg.sender][i].archived = true;
+    }
+
+    function getSessionType(address user, uint32 id)
+        public
+        view
+        returns (SessionType memory)
+    {
+        require(id <= sessionTypeByUser[user].length, "!availabilityId");
+        return sessionTypeByUser[user][id - 1];
+    }
+
+    function updateSessionType(
+        address user,
+        address recipient,
+        uint32 id,
+        uint32 availabilityId,
+        uint8 durationInSlot,
+        string calldata title,
+        string calldata description,
+        address token,
+        uint256 amount
+    ) external onlyManagerOrUser(user) {
+        // TODO: validate input data
+        require(id <= sessionTypeByUser[user].length, "!availabilityId");
+        uint32 i = id - 1;
+        sessionTypeByUser[user][i] = SessionType({
+            id: id,
+            recipient: recipient,
+            availabilityId: availabilityId,
+            durationInSlot: durationInSlot,
+            title: title,
+            description: description,
+            archived: sessionTypeByUser[user][i].archived,
+            token: token,
+            amount: amount
+        });
     }
 
     function book(
@@ -60,7 +195,7 @@ contract Sessions is Manager, SessionTypeStore, AvailabilityStore, Treasury {
         Date calldata date,
         uint8[] calldata slots,
         uint32 sessionTypeId
-    ) external validSlotIndex(slots) onlyInFeature(date) userGuard(seller) {
+    ) external validSlotIndex(slots) onlyInFeature(date) {
         uint32 timestamp = DateTime.toTimestamp(date);
         uint256 calendar = calendarByUserByDate[seller][timestamp];
         SessionType memory sessionType = getSessionType(seller, sessionTypeId);
@@ -88,6 +223,22 @@ contract Sessions is Manager, SessionTypeStore, AvailabilityStore, Treasury {
             IERC20(token).safeTransferFrom(buyer, treasury, treasuryAmount);
     }
 
+    function lockSlots(
+        uint256 _calendar,
+        uint256 availabilityByUserByDay,
+        uint8[] calldata slots
+    ) internal pure validSlotIndex(slots) returns (uint256 calendar) {
+        require(
+            isSlotsAvailable(_calendar, availabilityByUserByDay, slots),
+            "slots are already taken"
+        );
+        uint256 len = slots.length;
+        for (uint256 i = 0; i <= len; i++) {
+            _calendar | (uint256(1) << slots[i]);
+        }
+        calendar = _calendar;
+    }
+
     function isSlotsAvailable(
         uint256 calendar,
         uint256 availabilityByUserByDay,
@@ -108,21 +259,5 @@ contract Sessions is Manager, SessionTypeStore, AvailabilityStore, Treasury {
 
     function isBitSet(uint256 data, uint8 index) internal pure returns (bool) {
         return (data >> index) & uint256(1) == 1;
-    }
-
-    function lockSlots(
-        uint256 _calendar,
-        uint256 availabilityByUserByDay,
-        uint8[] calldata slots
-    ) internal pure validSlotIndex(slots) returns (uint256 calendar) {
-        require(
-            isSlotsAvailable(_calendar, availabilityByUserByDay, slots),
-            "slots are already taken"
-        );
-        uint256 len = slots.length;
-        for (uint256 i = 0; i <= len; i++) {
-            _calendar | (uint256(1) << slots[i]);
-        }
-        calendar = _calendar;
     }
 }

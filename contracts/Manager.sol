@@ -21,10 +21,8 @@ abstract contract Manager {
         _;
     }
 
-    
-
-    function whitelist(address addr, bool v) public onlyGov {
+    function whitelistManager(address addr, bool toWhitelist) public onlyGov {
         require(addr != address(0), "!addr");
-        managerWhitelist[addr] = v;
+        managerWhitelist[addr] = toWhitelist;
     }
 }

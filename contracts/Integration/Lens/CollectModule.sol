@@ -11,36 +11,29 @@ struct ProfilePublicationData {
 }
 
 contract CollectModule is ICollectModule {
-    ISessions private sessions;
-    ILensHub private lensHub;
-    address private gov;
+    ISessions public sessions;
+    ILensHub public lensHub;
     mapping(uint256 => mapping(uint256 => ProfilePublicationData))
         internal _dataByPublicationByProfile;
 
     constructor(
         address _lensHub,
-        address _sessions,
-        address _gov
+        address _sessions
     ) {
         lensHub = ILensHub(_lensHub);
-        gov = _gov;
         sessions = ISessions(_sessions);
     }
 
-    modifier onlyGov() {
-        require(msg.sender == gov, "!gov");
+    modifier onlyHub() {
+        require(msg.sender == address(lensHub), "!lensHub");
         _;
     }
 
-    function setGov(address _gov) public onlyGov {
-        gov = _gov;
-    }
-
-    function setSessions(address _sessions) public onlyGov {
+    function setSessions(address _sessions) public onlyHub {
         sessions = ISessions(_sessions);
     }
 
-    function setLensHub(address _lensHub) public onlyGov {
+    function setLensHub(address _lensHub) public onlyHub {
         lensHub = ILensHub(_lensHub);
     }
 
@@ -50,16 +43,21 @@ contract CollectModule is ICollectModule {
         bytes calldata data
     ) external returns (bytes memory) {
         (
+            address recipient,
+            uint32 availabilityId,
             uint8 durationInSlot,
             string memory title,
             string memory description,
-            uint32 availabilityId,
             address token,
             uint256 amount
-        ) = abi.decode(data, (uint8, string, string, uint32, address, uint256));
+        ) = abi.decode(
+                data,
+                (address, uint32, uint8, string, string, address, uint256)
+            );
         address user = lensHub.ownerOf(profileId);
         SessionType memory sessionType = sessions.createSessionType(
             user,
+            recipient,
             availabilityId,
             durationInSlot,
             title,
@@ -80,9 +78,14 @@ contract CollectModule is ICollectModule {
         uint256 pubId,
         bytes calldata data
     ) external {
-        (Date memory date, uint8[] memory slots, uint32 sessionTypeId) = abi
-            .decode(data, (Date, uint8[], uint32));
+        (Date memory date, uint8[] memory slots) = abi.decode(
+            data,
+            (Date, uint8[])
+        );
+        uint32 sessionTypeId = _dataByPublicationByProfile[profileId][pubId]
+            .sessionTypeId;
         address seller = lensHub.ownerOf(profileId);
+        require(_dataByPublicationByProfile[profileId][pubId].user == seller, "!seller");
         sessions.book(seller, collector, date, slots, sessionTypeId);
     }
 }
