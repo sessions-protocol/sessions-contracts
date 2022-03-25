@@ -34,7 +34,7 @@ interface ISessions {
         Date calldata date,
         uint8[] calldata slots,
         uint32 sessionTypeId
-    ) external;
+    ) external payable;
 
     function createSessionType(
         address user,
