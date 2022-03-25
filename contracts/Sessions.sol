@@ -4,7 +4,6 @@ pragma solidity 0.8.10;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "hardhat/console.sol";
-import "./DateTime.sol";
 import "./Manager.sol";
 import "./Treasury.sol";
 import "./interface/ISessions.sol";
@@ -18,9 +17,8 @@ contract Sessions is ISessions, Manager, Treasury {
     mapping(address => SessionType[]) private sessionTypeByUser;
     mapping(address => Availability[]) private availabilityByUser;
 
-    constructor(address _gov, address manager) {
+    constructor(address _gov) {
         require(_gov != address(0), "!gov");
-        whitelistManager(manager, true);
         gov = _gov;
     }
 
@@ -28,7 +26,7 @@ contract Sessions is ISessions, Manager, Treasury {
         address user,
         string memory name,
         uint256[7] calldata availableSlots
-    ) external  onlyManagerOrSelf(user) {
+    ) external onlyManagerOrSelf(user) {
         // TODO: validate input data
         availabilityByUser[user].push(
             Availability({
@@ -80,22 +78,26 @@ contract Sessions is ISessions, Manager, Treasury {
     }
 
     modifier onlyInFeature(Date memory date) {
-        uint32 timestamp = DateTime.toTimestamp(date);
+        uint32 timestamp = _toTimestamp(date);
         require(timestamp > block.timestamp, "!inFeature");
         _;
     }
 
-    modifier validSlotIndex(uint8[] calldata slots) {
+    function _validSlotIndex(uint8[] calldata slots)
+        internal
+        pure
+        returns (bool)
+    {
         uint256 len = slots.length;
-        require(len <= 240, "only handle slots in a day");
+        if (len > 240) return false;
         uint8[] memory uniqCheck = new uint8[](len);
         for (uint8 i = 0; i < len; i++) {
             uint8 slot = slots[i];
-            require(uniqCheck[slot] == 0, "slots must be unique");
+            if (uniqCheck[slot] == 0) return false;
             uniqCheck[slot] = 1;
-            require(slot < 240, "slot index out of range");
+            if (slot >= 240) return false;
         }
-        _;
+        return true;
     }
 
     function _validateSessionType(address user, SessionType memory sessionType)
@@ -119,13 +121,10 @@ contract Sessions is ISessions, Manager, Treasury {
         string calldata description,
         address token,
         uint256 amount
-    )
-        external
-        onlyManagerOrSelf(user)
-        returns (SessionType memory sessionType)
-    {
-        sessionType = SessionType({
-            id: uint32(sessionTypeByUser[user].length) + 1,
+    ) external onlyManagerOrSelf(user) returns (uint32 sessionTypeId) {
+        uint256 len = sessionTypeByUser[user].length;
+        SessionType memory sessionType = SessionType({
+            id: uint32(len) + 1,
             recipient: recipient,
             availabilityId: availabilityId,
             durationInSlot: durationInSlot,
@@ -138,6 +137,7 @@ contract Sessions is ISessions, Manager, Treasury {
         require(_validateSessionType(user, sessionType), "invalid sessionType");
 
         sessionTypeByUser[user].push(sessionType);
+        sessionTypeId = sessionType.id;
     }
 
     function archivedSessionType(address user, uint32 id)
@@ -162,31 +162,15 @@ contract Sessions is ISessions, Manager, Treasury {
         return sessionTypeByUser[user][id - 1];
     }
 
-    function updateSessionType(
-        address user,
-        address recipient,
-        uint32 id,
-        uint32 availabilityId,
-        uint8 durationInSlot,
-        string calldata title,
-        string calldata description,
-        address token,
-        uint256 amount
-    ) external onlyManagerOrSelf(user) {
-        // TODO: validate input data
-        require(id <= sessionTypeByUser[user].length, "!availabilityId");
-        uint32 i = id - 1;
-        sessionTypeByUser[user][i] = SessionType({
-            id: id,
-            recipient: recipient,
-            availabilityId: availabilityId,
-            durationInSlot: durationInSlot,
-            title: title,
-            description: description,
-            archived: sessionTypeByUser[user][i].archived,
-            token: token,
-            amount: amount
-        });
+    function updateSessionType(address user, SessionType calldata sessionType)
+        external
+        onlyManagerOrSelf(user)
+    {
+        uint256 len = sessionTypeByUser[user].length;
+        uint256 index = sessionType.id - 1;
+        require(index < len, "invalid id");
+        require(_validateSessionType(user, sessionType), "invalid sessionType");
+        sessionTypeByUser[user][index] = sessionType;
     }
 
     function book(
@@ -195,23 +179,22 @@ contract Sessions is ISessions, Manager, Treasury {
         Date calldata date,
         uint8[] calldata slots,
         uint32 sessionTypeId
-    ) external payable onlyManagerOrSelf(buyer) validSlotIndex(slots) onlyInFeature(date) {
-        uint32 timestamp = DateTime.toTimestamp(date);
-        uint256 calendar = calendarByUserByDate[seller][timestamp];
+    ) external payable onlyManagerOrSelf(buyer) onlyInFeature(date) {
+        uint32 timestamp = _toTimestamp(date);
         SessionType memory sessionType = getSessionType(seller, sessionTypeId);
-        Availability memory availability = getAvailability(
-            seller,
-            sessionType.availabilityId
-        );
-        uint256 availableSlots = availability.availableSlots[
-            DateTime.getWeekday(timestamp)
-        ];
+        uint256 availableSlots = availabilityByUser[seller][
+            sessionType.availabilityId - 1
+        ].availableSlots[_getWeekday(timestamp)];
         // lock slots
-        calendarByUserByDate[seller][timestamp] = lockSlots(
-            calendar,
+        calendarByUserByDate[seller][timestamp] = _lockSlots(
+            calendarByUserByDate[seller][timestamp],
             availableSlots,
             slots
         );
+        _pay(buyer, sessionType);
+    }
+
+    function _pay(address buyer, SessionType memory sessionType) internal {
         address recipient = sessionType.recipient;
         uint256 amount = sessionType.amount;
         address token = sessionType.token;
@@ -223,13 +206,14 @@ contract Sessions is ISessions, Manager, Treasury {
             IERC20(token).safeTransferFrom(buyer, treasury, treasuryAmount);
     }
 
-    function lockSlots(
+    function _lockSlots(
         uint256 _calendar,
         uint256 availabilityByUserByDay,
         uint8[] calldata slots
-    ) internal pure validSlotIndex(slots) returns (uint256 calendar) {
+    ) internal pure returns (uint256 calendar) {
+        require(_validSlotIndex(slots), "!validSlotIndex");
         require(
-            isSlotsAvailable(_calendar, availabilityByUserByDay, slots),
+            _isSlotsAvailable(_calendar, availabilityByUserByDay, slots),
             "slots are already taken"
         );
         uint256 len = slots.length;
@@ -239,7 +223,7 @@ contract Sessions is ISessions, Manager, Treasury {
         calendar = _calendar;
     }
 
-    function isSlotsAvailable(
+    function _isSlotsAvailable(
         uint256 calendar,
         uint256 availabilityByUserByDay,
         uint8[] calldata slots
@@ -248,8 +232,8 @@ contract Sessions is ISessions, Manager, Treasury {
         for (uint256 i = 0; i <= len; i++) {
             uint8 index = slots[i];
             if (
-                isBitSet(calendar, index) ||
-                !isBitSet(availabilityByUserByDay, index)
+                _isBitSet(calendar, index) ||
+                !_isBitSet(availabilityByUserByDay, index)
             ) {
                 return false;
             }
@@ -257,7 +241,72 @@ contract Sessions is ISessions, Manager, Treasury {
         return true;
     }
 
-    function isBitSet(uint256 data, uint8 index) internal pure returns (bool) {
+    function _isBitSet(uint256 data, uint8 index) internal pure returns (bool) {
         return (data >> index) & uint256(1) == 1;
+    }
+
+    function _isLeapYear(uint16 year) internal pure returns (bool) {
+        if (year % 4 != 0) {
+            return false;
+        }
+        if (year % 100 != 0) {
+            return true;
+        }
+        if (year % 400 != 0) {
+            return false;
+        }
+        return true;
+    }
+
+    function _getWeekday(uint256 timestamp) internal pure returns (uint8) {
+        return uint8((timestamp / 86400 + 4) % 7);
+    }
+
+    function _toTimestamp(Date memory date)
+        internal 
+        pure
+        returns (uint32 timestamp)
+    {
+        uint16 year = date.year;
+        uint8 month = date.month;
+        uint16 day = date.day;
+
+        uint16 i;
+
+        // Year
+        for (i = 1970; i < year; i++) {
+            if (_isLeapYear(i)) {
+                timestamp += 31622400;
+            } else {
+                timestamp += 31536000;
+            }
+        }
+
+        // Month
+        uint8[12] memory monthDayCounts;
+        monthDayCounts[0] = 31;
+        if (_isLeapYear(year)) {
+            monthDayCounts[1] = 29;
+        } else {
+            monthDayCounts[1] = 28;
+        }
+        monthDayCounts[2] = 31;
+        monthDayCounts[3] = 30;
+        monthDayCounts[4] = 31;
+        monthDayCounts[5] = 30;
+        monthDayCounts[6] = 31;
+        monthDayCounts[7] = 31;
+        monthDayCounts[8] = 30;
+        monthDayCounts[9] = 31;
+        monthDayCounts[10] = 30;
+        monthDayCounts[11] = 31;
+
+        for (i = 1; i < month; i++) {
+            timestamp += 86400 * monthDayCounts[i - 1];
+        }
+
+        // Day
+        timestamp += 86400 * (day - 1);
+        return timestamp;
     }
 }

@@ -16,10 +16,7 @@ contract CollectModule is ICollectModule {
     mapping(uint256 => mapping(uint256 => ProfilePublicationData))
         internal _dataByPublicationByProfile;
 
-    constructor(
-        address _lensHub,
-        address _sessions
-    ) {
+    constructor(address _lensHub, address _sessions) {
         lensHub = ILensHub(_lensHub);
         sessions = ISessions(_sessions);
     }
@@ -42,6 +39,17 @@ contract CollectModule is ICollectModule {
         uint256 pubId,
         bytes calldata data
     ) external returns (bytes memory) {
+        address user = lensHub.ownerOf(profileId);
+        uint32 id = _createSessionType(user, data);
+        _dataByPublicationByProfile[profileId][pubId].user = user;
+        _dataByPublicationByProfile[profileId][pubId].sessionTypeId = id;
+        return data;
+    }
+
+    function _createSessionType(address user, bytes calldata data)
+        internal
+        returns (uint32 id)
+    {
         (
             address recipient,
             uint32 availabilityId,
@@ -54,21 +62,17 @@ contract CollectModule is ICollectModule {
                 data,
                 (address, uint32, uint8, string, string, address, uint256)
             );
-        address user = lensHub.ownerOf(profileId);
-        SessionType memory sessionType = sessions.createSessionType(
-            user,
-            recipient,
-            availabilityId,
-            durationInSlot,
-            title,
-            description,
-            token,
-            amount
-        );
-        _dataByPublicationByProfile[profileId][pubId].user = user;
-        _dataByPublicationByProfile[profileId][pubId]
-            .sessionTypeId = sessionType.id;
-        return data;
+        return
+            sessions.createSessionType(
+                user,
+                recipient,
+                availabilityId,
+                durationInSlot,
+                title,
+                description,
+                token,
+                amount
+            );
     }
 
     function processCollect(
@@ -85,7 +89,10 @@ contract CollectModule is ICollectModule {
         uint32 sessionTypeId = _dataByPublicationByProfile[profileId][pubId]
             .sessionTypeId;
         address seller = lensHub.ownerOf(profileId);
-        require(_dataByPublicationByProfile[profileId][pubId].user == seller, "!seller");
+        require(
+            _dataByPublicationByProfile[profileId][pubId].user == seller,
+            "!seller"
+        );
         sessions.book(seller, collector, date, slots, sessionTypeId);
     }
 }

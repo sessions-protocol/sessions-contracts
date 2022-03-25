@@ -45,5 +45,5 @@ interface ISessions {
         string calldata description,
         address token,
         uint256 amount
-    ) external returns (SessionType memory);
+    ) external returns (uint32 sessionTypeId);
 }
