@@ -1,4 +1,0 @@
-[submodule "lens-protocol"]
-	path = lens-protocol
-	url = https://github.com/aave/lens-protocol
-	branch = main 

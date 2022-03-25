@@ -1,13 +1,8 @@
 //SPDX-License-Identifier: Unlicense
 pragma solidity ^0.8.0;
+import {Date} from "./interface/ISessions.sol";
 
 library DateTime {
-    struct Date {
-        uint16 year;
-        uint8 month;
-        uint8 day;
-    }
-
     function isLeapYear(uint16 year) internal pure returns (bool) {
         if (year % 4 != 0) {
             return false;
