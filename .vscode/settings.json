@@ -1,5 +1,3 @@
 {
-	"solidity.defaultCompiler": "localFile",
-	"solidity.compileUsingRemoteVersion": "v0.8.10+commit.fc410830",
-	"solidity.compileUsingLocalVersion": "/Users/rs/W/P/ses/soljson-v0.8.10+commit.fc410830.js"
+	"solidity.defaultCompiler": "localFile"
 }

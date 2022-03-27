@@ -1,36 +1,66 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-pragma solidity 0.8.10;
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "hardhat/console.sol";
-import "./Manager.sol";
+pragma solidity 0.8.13;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+
+import "@openzeppelin/contracts/proxy/Clones.sol";
+
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+import "@openzeppelin/contracts/utils/Address.sol";
+
+
 import "./Treasury.sol";
 import "./interface/ISessions.sol";
+import "./interface/ISessionNFT.sol";
+import "./interface/ILensHub.sol";
+import "./interface/ILensHubNFT.sol";
 
-contract Sessions is ISessions, Manager, Treasury {
+contract Sessions is ISessions, Treasury, ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using Strings for uint32;
 
-    // user -> date -> slots, 6 minutes per slot, 240 bits for a day
+    address public immutable LENS_HUB;
+    address public sessionNFTImpl;
+
+    string internal constant SESSION_NFT_NAME_INFIX = "-Session-";
+    string internal constant SESSION_NFT_SYMBOL_INFIX = "-S-";
+    uint256 constant SLOT_DURATION = 6;
+
+    // Profile -> date -> slots, 6 minutes per slot, 240 bits for a day
     // 0 -> unlock, 1 -> locked
-    mapping(address => mapping(uint32 => uint256)) private calendarByUserByDate;
-    mapping(address => SessionType[]) private sessionTypeByUser;
-    mapping(address => Availability[]) private availabilityByUser;
-
-    constructor(address _gov) {
-        require(_gov != address(0), "!gov");
+    mapping(uint256 => mapping(uint256 => uint256)) private calendarByProfileByDate;
+    mapping(uint256 => SessionType[]) private sessionTypeByProfile;
+    mapping(uint256 => Availability[]) private availabilityByProfile;
+    mapping(uint256 => mapping(uint256 => Session)) private sessionByProfileByNFT;
+    constructor(address _lensHub, address _sessionNFTImpl, address _gov) {
         gov = _gov;
+        LENS_HUB = _lensHub;
+        sessionNFTImpl = _sessionNFTImpl;
+    }
+
+    modifier isOwenrOrDispatcher(uint256 lensProfileId) {
+        address dispatcher = ILensHub(LENS_HUB).getDispatcher(lensProfileId);
+        address owner = ILensHubNFT(LENS_HUB).ownerOf(lensProfileId);
+        require(owner == msg.sender || msg.sender == dispatcher, "NOT_PROFILE_OWNER_OR_DISPATCHER");
+        _;
+    }
+
+    function setSessionNFTImpl(address _sessionNFTImpl) external onlyGov {
+        sessionNFTImpl = _sessionNFTImpl;
     }
 
     function createAvailability(
-        address user,
+        uint256 lensProfileId,
         string memory name,
         uint256[7] calldata availableSlots
-    ) external onlyManagerOrSelf(user) {
+    ) external isOwenrOrDispatcher(lensProfileId) {
         // TODO: validate input data
-        availabilityByUser[user].push(
+        availabilityByProfile[lensProfileId].push(
             Availability({
-                id: uint32(availabilityByUser[user].length) + 1,
+                id: uint32(availabilityByProfile[lensProfileId].length) + 1,
                 availableSlots: availableSlots,
                 name: name,
                 archived: false
@@ -38,275 +68,269 @@ contract Sessions is ISessions, Manager, Treasury {
         );
     }
 
-    function archivedAvailability(address user, uint32 id)
+    function archivedAvailability(
+        uint256 lensProfileId,
+        uint32 id
+    )
         external
-        onlyManagerOrSelf(user)
+        isOwenrOrDispatcher(lensProfileId)
     {
-        require(id <= availabilityByUser[user].length, "!availabilityId");
+        require(id <= availabilityByProfile[lensProfileId].length, "!availabilityId");
         uint32 i = id - 1;
         require(
-            availabilityByUser[user][i].archived == false,
+            availabilityByProfile[lensProfileId][i].archived == false,
             "already archived"
         );
-        availabilityByUser[msg.sender][i].archived = true;
+        availabilityByProfile[lensProfileId][i].archived = true;
     }
 
-    function getAvailability(address user, uint32 id)
+    function getAvailability(uint256 lensProfileId, uint32 id)
         public
         view
         returns (Availability memory)
     {
-        require(id <= availabilityByUser[user].length, "!availabilityId");
-        return availabilityByUser[user][id - 1];
+        require(id <= availabilityByProfile[lensProfileId].length, "!availabilityId");
+        return availabilityByProfile[lensProfileId][id - 1];
     }
 
     function updateAvailability(
-        address user,
+        uint256 lensProfileId,
         uint32 id,
         string calldata name,
         uint256[7] calldata availableSlots
-    ) external onlyManagerOrSelf(user) {
+    )
+        external
+        isOwenrOrDispatcher(lensProfileId)
+    {
         // TODO: validate input data
-        require(id <= availabilityByUser[user].length, "!availabilityId");
+        require(id <= availabilityByProfile[lensProfileId].length, "!availabilityId");
         uint32 i = id - 1;
-        availabilityByUser[user][i] = Availability({
+        availabilityByProfile[lensProfileId][i] = Availability({
             id: id,
             availableSlots: availableSlots,
             name: name,
-            archived: availabilityByUser[user][i].archived
+            archived: availabilityByProfile[lensProfileId][i].archived
         });
     }
 
-    modifier onlyInFeature(Date memory date) {
-        uint32 timestamp = _toTimestamp(date);
-        require(timestamp > block.timestamp, "!inFeature");
-        _;
-    }
 
-    function _validSlotIndex(uint8[] calldata slots)
-        internal
-        pure
-        returns (bool)
-    {
-        uint256 len = slots.length;
-        if (len > 240) return false;
-        uint8[] memory uniqCheck = new uint8[](len);
-        for (uint8 i = 0; i < len; i++) {
-            uint8 slot = slots[i];
-            if (uniqCheck[slot] == 0) return false;
-            uniqCheck[slot] = 1;
-            if (slot >= 240) return false;
-        }
-        return true;
-    }
-
-    function _validateSessionType(address user, SessionType memory sessionType)
+    function _validateSessionType(uint256 lensProfileId, SessionType memory sessionType)
         internal
         view
         returns (bool)
     {
-        if (!tokenWhitelisted[sessionType.token]) return false;
+        if (sessionType.token != address(0) && !tokenWhitelisted[sessionType.token]) return false;
         if (sessionType.recipient == address(0)) return false;
-        if (sessionType.availabilityId >= availabilityByUser[user].length)
+        if (sessionType.availabilityId > availabilityByProfile[lensProfileId].length)
             return false;
         return true;
     }
 
     function createSessionType(
-        address user,
-        address recipient,
-        uint32 availabilityId,
-        uint8 durationInSlot,
-        string calldata title,
-        string calldata description,
-        address token,
-        uint256 amount
-    ) external onlyManagerOrSelf(user) returns (uint32 sessionTypeId) {
-        uint256 len = sessionTypeByUser[user].length;
-        SessionType memory sessionType = SessionType({
-            id: uint32(len) + 1,
-            recipient: recipient,
-            availabilityId: availabilityId,
-            durationInSlot: durationInSlot,
-            title: title,
-            description: description,
-            archived: false,
-            token: token,
-            amount: amount
-        });
-        require(_validateSessionType(user, sessionType), "invalid sessionType");
-
-        sessionTypeByUser[user].push(sessionType);
-        sessionTypeId = sessionType.id;
-    }
-
-    function archivedSessionType(address user, uint32 id)
+        uint256 lensProfileId,
+        SessionTypeData calldata data
+    ) 
         external
-        onlyManagerOrSelf(user)
+        nonReentrant
+        isOwenrOrDispatcher(lensProfileId)
+        returns (uint32 sessionTypeId)
     {
-        require(id <= sessionTypeByUser[user].length, "!availabilityId");
-        uint32 i = id - 1;
-        require(
-            sessionTypeByUser[user][i].archived == false,
-            "already archived"
+        sessionTypeId = uint32(sessionTypeByProfile[lensProfileId].length) + 1;
+        
+        address sessionNFT = createSessionNFT(
+            lensProfileId,
+            sessionTypeId,
+            data.title
         );
-        sessionTypeByUser[msg.sender][i].archived = true;
+
+        SessionType memory sessionType = SessionType({
+            id: sessionTypeId,
+            recipient: data.recipient,
+            durationInSlot: data.durationInSlot,
+            availabilityId: data.availabilityId,
+            title: data.title,
+            description: data.description,
+            archived: false,
+            locked: data.locked,
+            token: data.token,
+            amount: data.amount,
+            contentURI: data.contentURI,
+            sessionNFT: sessionNFT
+        });
+        require(_validateSessionType(lensProfileId, sessionType), "invalid sessionType");
+
+        sessionTypeByProfile[lensProfileId].push(sessionType);
     }
 
-    function getSessionType(address user, uint32 id)
+    function createSessionNFT(
+        uint256 lensProfileId,
+        uint32 sessionTypeId,
+        string calldata title
+    ) internal returns (address sessionNFT) {
+        DataTypes.ProfileStruct memory profile = ILensHub(LENS_HUB).getProfile(lensProfileId);
+        string memory handle = profile.handle;
+        bytes4 firstBytes = bytes4(bytes(handle));
+
+        string memory sessionNFTName = string(
+            abi.encodePacked(handle, SESSION_NFT_NAME_INFIX, title)
+        );
+        string memory sessionNFTSymbol = string(
+            abi.encodePacked(
+                firstBytes,
+                SESSION_NFT_SYMBOL_INFIX,
+                sessionTypeId.toString()
+            )
+        );
+
+        sessionNFT = Clones.clone(sessionNFTImpl);
+        ISessionNFT(sessionNFT).initialize(
+            lensProfileId,
+            sessionTypeId,
+            sessionNFTName,
+            sessionNFTSymbol
+        );
+    }
+
+    function getContentURI(uint256 lensProfileId, uint256 _sessionTypeId, uint256 sessionNFTId)
+        external
+        view
+        override
+        returns (string memory)
+    {
+        return sessionByProfileByNFT[lensProfileId][sessionNFTId].contentURI;
+    }
+
+    function onSessionNFTTransfer(
+        uint256 lensProfileId,
+        uint256 sessionTypeId,
+        uint256 followNFTId,
+        address from,
+        address to
+    ) external {
+        SessionType memory sessionType = sessionTypeByProfile[lensProfileId][sessionTypeId - 1];
+        require(msg.sender == sessionType.sessionNFT, "NOT_SESSION_NFT");
+        require(sessionType.locked != true, "locked");
+    }
+
+    function archivedSessionType(
+        uint32 id,
+        uint256 lensProfileId
+    )
+        external
+        isOwenrOrDispatcher(lensProfileId)
+    {
+        require(id <= sessionTypeByProfile[lensProfileId].length, "!availabilityId");
+        sessionTypeByProfile[lensProfileId][id - 1].archived = true;
+    }
+
+    function getSessionType(uint256 lensProfileId, uint32 id)
         public
         view
         returns (SessionType memory)
     {
-        require(id <= sessionTypeByUser[user].length, "!availabilityId");
-        return sessionTypeByUser[user][id - 1];
+        require(id <= sessionTypeByProfile[lensProfileId].length, "!availabilityId");
+        return sessionTypeByProfile[lensProfileId][id - 1];
     }
 
-    function updateSessionType(address user, SessionType calldata sessionType)
+    function updateSessionType(
+        uint256 lensProfileId,
+        SessionType calldata sessionType
+    )
         external
-        onlyManagerOrSelf(user)
+        isOwenrOrDispatcher(lensProfileId)
     {
-        uint256 len = sessionTypeByUser[user].length;
+        uint256 len = sessionTypeByProfile[lensProfileId].length;
         uint256 index = sessionType.id - 1;
         require(index < len, "invalid id");
-        require(_validateSessionType(user, sessionType), "invalid sessionType");
-        sessionTypeByUser[user][index] = sessionType;
+        require(_validateSessionType(lensProfileId, sessionType), "invalid sessionType");
+        sessionTypeByProfile[lensProfileId][index] = sessionType;
     }
 
     function book(
-        address seller,
-        address buyer,
-        Date calldata date,
-        uint8[] calldata slots,
+        uint256 lensProfileId,
+        uint256 timestamp,
         uint32 sessionTypeId
-    ) external payable onlyManagerOrSelf(buyer) onlyInFeature(date) {
-        uint32 timestamp = _toTimestamp(date);
-        SessionType memory sessionType = getSessionType(seller, sessionTypeId);
-        uint256 availableSlots = availabilityByUser[seller][
-            sessionType.availabilityId - 1
-        ].availableSlots[_getWeekday(timestamp)];
-        // lock slots
-        calendarByUserByDate[seller][timestamp] = _lockSlots(
-            calendarByUserByDate[seller][timestamp],
-            availableSlots,
-            slots
+    ) external payable nonReentrant {
+        require(timestamp > block.timestamp, "!inFeature");
+        SessionType memory sessionType = getSessionType(lensProfileId, sessionTypeId);
+        require(
+            sessionType.archived == false,
+            "sessionType archived"
         );
-        _pay(buyer, sessionType);
+        uint256 date = (timestamp / 86400) * 86400;
+        uint8 startSlot = uint8((timestamp - date) / SLOT_DURATION);
+
+        uint256 availableSlots = availabilityByProfile[lensProfileId][
+            sessionType.availabilityId - 1
+        ].availableSlots[_getWeekday(date)];
+
+        // lock slots
+        calendarByProfileByDate[lensProfileId][date] = _lockSlots(
+            calendarByProfileByDate[lensProfileId][date],
+            availableSlots,
+            startSlot,
+            startSlot + sessionType.durationInSlot
+        );
+        _pay(sessionType);
+        // mint
+        uint256 sessionNFTId = ISessionNFT(sessionType.sessionNFT).mint(msg.sender);
+        sessionByProfileByNFT[lensProfileId][sessionNFTId] = Session({
+            sessionTypeId: sessionTypeId,
+            title: sessionType.title,
+            start: timestamp,
+            end: timestamp + sessionType.durationInSlot * SLOT_DURATION,
+            contentURI: sessionType.contentURI
+        });
     }
 
-    function _pay(address buyer, SessionType memory sessionType) internal {
-        address recipient = sessionType.recipient;
+    function _pay( SessionType memory sessionType) internal {
+        address payable recipient = sessionType.recipient;
         uint256 amount = sessionType.amount;
         address token = sessionType.token;
         uint256 treasuryAmount = (amount * treasuryFee) / BPS_MAX;
         uint256 adjustedAmount = amount - treasuryAmount;
-
-        IERC20(token).safeTransferFrom(buyer, recipient, adjustedAmount);
-        if (treasuryAmount > 0)
-            IERC20(token).safeTransferFrom(buyer, treasury, treasuryAmount);
+        if (token == address(0)) {
+            require(msg.value >= amount, "!enough");
+            // ETH
+            Address.sendValue(recipient, adjustedAmount);
+            if (treasuryAmount > 0) {
+                Address.sendValue(treasury, treasuryAmount);
+            }
+        } else {
+            // ERC20
+            IERC20(token).safeTransferFrom(msg.sender, recipient, adjustedAmount);
+            if (treasuryAmount > 0) {
+                IERC20(token).safeTransferFrom(msg.sender, treasury, treasuryAmount);
+            }
+        }
     }
 
     function _lockSlots(
         uint256 _calendar,
-        uint256 availabilityByUserByDay,
-        uint8[] calldata slots
+        uint256 availabilityByProfileByDay,
+        uint8 startSlot,
+        uint8 endSlot
     ) internal pure returns (uint256 calendar) {
-        require(_validSlotIndex(slots), "!validSlotIndex");
-        require(
-            _isSlotsAvailable(_calendar, availabilityByUserByDay, slots),
-            "slots are already taken"
-        );
-        uint256 len = slots.length;
-        for (uint256 i = 0; i <= len; i++) {
-            _calendar | (uint256(1) << slots[i]);
+        require(endSlot < 241, "!validSlotIndex");
+        uint8 len = endSlot - startSlot;
+        for (uint8 i = 0; i <= len; i++) {
+            uint8 index = startSlot + i;
+            require(
+                !_isBitSet(calendar, index) &&
+                _isBitSet(availabilityByProfileByDay, index)
+            , "!availableSlot");
+            _calendar | (uint256(1) << index);
         }
         calendar = _calendar;
     }
 
-    function _isSlotsAvailable(
-        uint256 calendar,
-        uint256 availabilityByUserByDay,
-        uint8[] calldata slots
-    ) internal pure returns (bool) {
-        uint256 len = slots.length;
-        for (uint256 i = 0; i <= len; i++) {
-            uint8 index = slots[i];
-            if (
-                _isBitSet(calendar, index) ||
-                !_isBitSet(availabilityByUserByDay, index)
-            ) {
-                return false;
-            }
-        }
-        return true;
-    }
 
     function _isBitSet(uint256 data, uint8 index) internal pure returns (bool) {
         return (data >> index) & uint256(1) == 1;
     }
 
-    function _isLeapYear(uint16 year) internal pure returns (bool) {
-        if (year % 4 != 0) {
-            return false;
-        }
-        if (year % 100 != 0) {
-            return true;
-        }
-        if (year % 400 != 0) {
-            return false;
-        }
-        return true;
-    }
 
     function _getWeekday(uint256 timestamp) internal pure returns (uint8) {
         return uint8((timestamp / 86400 + 4) % 7);
-    }
-
-    function _toTimestamp(Date memory date)
-        internal 
-        pure
-        returns (uint32 timestamp)
-    {
-        uint16 year = date.year;
-        uint8 month = date.month;
-        uint16 day = date.day;
-
-        uint16 i;
-
-        // Year
-        for (i = 1970; i < year; i++) {
-            if (_isLeapYear(i)) {
-                timestamp += 31622400;
-            } else {
-                timestamp += 31536000;
-            }
-        }
-
-        // Month
-        uint8[12] memory monthDayCounts;
-        monthDayCounts[0] = 31;
-        if (_isLeapYear(year)) {
-            monthDayCounts[1] = 29;
-        } else {
-            monthDayCounts[1] = 28;
-        }
-        monthDayCounts[2] = 31;
-        monthDayCounts[3] = 30;
-        monthDayCounts[4] = 31;
-        monthDayCounts[5] = 30;
-        monthDayCounts[6] = 31;
-        monthDayCounts[7] = 31;
-        monthDayCounts[8] = 30;
-        monthDayCounts[9] = 31;
-        monthDayCounts[10] = 30;
-        monthDayCounts[11] = 31;
-
-        for (i = 1; i < month; i++) {
-            timestamp += 86400 * monthDayCounts[i - 1];
-        }
-
-        // Day
-        timestamp += 86400 * (day - 1);
-        return timestamp;
     }
 }

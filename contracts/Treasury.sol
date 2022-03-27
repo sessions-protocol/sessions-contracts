@@ -1,13 +1,17 @@
-pragma solidity 0.8.10;
-import "./Manager.sol";
+pragma solidity 0.8.13;
 
-contract Treasury is Manager {
+contract Treasury {
+    address public gov;
     uint16 internal constant BPS_MAX = 10000;
     mapping(address => bool) internal tokenWhitelisted;
-    address internal treasury;
+    address payable internal treasury;
     uint16 internal treasuryFee;
 
-    function setTreasury(address newTreasury) external onlyGov {
+    modifier onlyGov() {
+        require(msg.sender == gov, "!gov");
+        _;
+    }
+    function setTreasury(address payable newTreasury) external onlyGov {
         require(newTreasury != address(0));
         treasury = newTreasury;
     }
