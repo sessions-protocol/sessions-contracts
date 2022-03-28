@@ -8,7 +8,7 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0x6dc0424c5beb6bfadd150633e2e99522ddc0802d"
+    "0x3a0494b31EE26705a8Cca6f42703Ec70E45b016a"
   );
 
   const sessionsContract = new hre.ethers.Contract(
@@ -23,12 +23,13 @@ async function main() {
       recipient: deployer,
       durationInSlot: 10,
       availabilityId: 1,
+      openBookingDeltaDays: 14,
       title: "english 1h",
       description: "zoom meeting",
-      contentURI: "",
       token: "0x0000000000000000000000000000000000000000",
       amount: "100000000000000000",
       locked: false,
+      validateFollow: false,
     },
   ];
   const tx = await sessionsContract.createSessionType(...calldata);

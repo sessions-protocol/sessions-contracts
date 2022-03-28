@@ -3,7 +3,6 @@
 pragma solidity 0.8.13;
 
 struct SessionType {
-    uint32 id;
     address payable recipient;
     uint8 durationInSlot;
     uint32 openBookingDeltaDays;
@@ -12,29 +11,28 @@ struct SessionType {
     bool archived;
     bool locked;
     bool validateFollow;
-    uint32 availabilityId;
     address token;
     uint256 amount;
     address sessionNFT;
-    string contentURI;
+    uint256 availabilityId;
+    uint256 lensProfileId;
 }
 
 struct SessionTypeData {
     address payable recipient;
     uint8 durationInSlot;
     uint32 openBookingDeltaDays;
-    uint32 availabilityId;
     string title;
     string description;
-    string contentURI;
     address token;
     uint256 amount;
+    uint256 availabilityId;
     bool locked;
     bool validateFollow;
 }
 
 struct Session {
-    uint32 sessionTypeId;
+    uint256 sessionTypeId;
     string title;
     uint256 start;
     uint256 end;
@@ -42,7 +40,6 @@ struct Session {
 }
 
 struct Availability {
-    uint32 id;
     uint256[7] availableSlots;
     bool archived;
     string name;
@@ -51,23 +48,21 @@ struct Availability {
 
 interface ISessions {
     function book(
-        uint256 lensProfileId,
         uint256 timestamp,
-        uint32 sessionTypeId
+        uint256 sessionTypeId
     ) external payable;
 
     function createSessionType(
         uint256 lensProfileId,
         SessionTypeData calldata data
-    ) external returns (uint32 sessionTypeId);
+    ) external returns (uint256 sessionTypeId);
 
-    function getContentURI(uint256 lensProfileId, uint256 _sessionTypeId, uint256 sessionNFTId)
+    function getContentURI(uint256 sessionTypeId, uint256 sessionNFTId)
         external
         view
         returns (string memory);
 
     function onSessionNFTTransfer(
-        uint256 lensProfileId,
         uint256 sessionTypeId,
         uint256 followNFTId,
         address from,

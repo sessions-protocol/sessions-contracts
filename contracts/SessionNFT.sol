@@ -38,7 +38,7 @@ contract SessionNFT is ERC721EnumerableUpgradeable {
     }
 
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
-        return ISessions(SESSIONS).getContentURI(_profileId, _sessionTypeId, tokenId);
+        return ISessions(SESSIONS).getContentURI(_sessionTypeId, tokenId);
     }
 
     /**
@@ -50,6 +50,6 @@ contract SessionNFT is ERC721EnumerableUpgradeable {
         uint256 tokenId
     ) internal override {
         super._beforeTokenTransfer(from, to, tokenId);
-        ISessions(SESSIONS).onSessionNFTTransfer(_profileId, _sessionTypeId, tokenId, from, to);
+        ISessions(SESSIONS).onSessionNFTTransfer(_sessionTypeId, tokenId, from, to);
     }
 }

@@ -8,7 +8,7 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0x6dc0424c5beb6bfadd150633e2e99522ddc0802d"
+    "0x3a0494b31EE26705a8Cca6f42703Ec70E45b016a"
   );
 
   const contract = new hre.ethers.Contract(
@@ -17,7 +17,7 @@ async function main() {
     signer
   );
 
-  const calldata = ["1127", "1659479037", "1"];
+  const calldata = ["1648720747", "1"];
   const tx = await contract.book(...calldata, {
       value: utils.parseEther("0.1"),
   });
