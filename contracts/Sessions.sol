@@ -149,7 +149,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
             }
         } else {
             address followNFT = ILensHub(LENS_HUB).getFollowNFT(lensProfileId);
-            if (followNFT != address(0)) return false;
+            if (followNFT == address(0)) return false;
             if (IERC721(followNFT).balanceOf(user) > 0) return true;
         }
     }
