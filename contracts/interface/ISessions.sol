@@ -18,6 +18,11 @@ struct SessionType {
     uint256 lensProfileId;
 }
 
+struct SessionAvailability {
+    uint256 date;
+    uint256 availableSlot;
+}
+
 struct SessionTypeData {
     address payable recipient;
     uint8 durationInSlot;

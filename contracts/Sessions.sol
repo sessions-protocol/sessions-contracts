@@ -247,13 +247,74 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         sessionTypes[sessionTypeId - 1].archived = true;
     }
 
-    function getSessionType(uint256 id)
+    function getSessionType(uint256 sessionTypeId)
         public
         view
         returns (SessionType memory)
     {
-        require(id <= sessionTypes.length, "!sessionTypeId");
-        return sessionTypes[id - 1];
+        require(sessionTypeId <= sessionTypes.length, "!sessionTypeId");
+        return sessionTypes[sessionTypeId - 1];
+    }
+
+    function getAvailabilityBySessionTypeId(
+        uint256 sessionTypeId,
+        uint256 startTime,
+        uint256 endTime
+    )
+        public
+        view
+        returns (SessionAvailability[] memory)
+    {
+        uint256 _days = endTime / 86400 - startTime / 86400;
+        SessionAvailability[] memory sessionAvailabilitys = new SessionAvailability[](_days);
+        SessionType memory sessionType = getSessionType(sessionTypeId);
+        for (uint256 index = 0; index < _days; index++) {
+            sessionAvailabilitys[index] = getAvailabeSlotsByDate(
+                startTime + 86400 * index,
+                sessionType
+            );
+        }
+        return sessionAvailabilitys;
+    }
+
+    function getSessionTypesByProfile(uint256 lensProfileId)
+        external
+        view
+        returns (
+            uint256[] memory sessionTypeIds,
+            SessionType[] memory sessionTypesByProfile
+        )
+    {
+        uint256[] memory sessionTypeIds = sessionTypesOwnedByProfile[
+            lensProfileId
+        ];
+        SessionType[] memory sessionTypesByProfile = new SessionType[](
+            sessionTypeIds.length
+        );
+        for (uint256 i; i < sessionTypeIds.length; ++i) {
+            sessionTypesByProfile[i] = sessionTypes[sessionTypeIds[i] - 1];
+        }
+        return (sessionTypeIds, sessionTypesByProfile);
+    }
+
+    function getAvailablitysByProfile(uint256 lensProfileId)
+        external
+        view
+        returns (
+            uint256[] memory availabilityIds,
+            Availability[] memory availabilitysByProfile
+        )
+    {
+        uint256[] memory availabilityIds = availabilitysOwnedByProfile[
+            lensProfileId
+        ];
+        Availability[] memory availabilitysByProfile = new Availability[](
+            availabilityIds.length
+        );
+        for (uint256 i; i < availabilityIds.length; ++i) {
+            availabilitysByProfile[i] = availabilitys[availabilityIds[i] - 1];
+        }
+        return (availabilityIds, availabilitysByProfile);
     }
 
     function updateSessionType(
@@ -331,6 +392,18 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
                 IERC20(token).safeTransferFrom(msg.sender, treasury, treasuryAmount);
             }
         }
+    }
+
+    function getAvailabeSlotsByDate(uint256 timestamp, SessionType memory sessionType) internal view returns (SessionAvailability memory) {
+        uint256 date = (timestamp / 86400) * 86400;
+        uint256 availableSlots = sessionType.availabilityId > 0 ? availabilitys[
+            sessionType.availabilityId - 1
+        ].availableSlots[_getWeekday(date)] : type(uint256).max;
+
+        return SessionAvailability({
+            date: date, 
+            availableSlot: ~calendarByProfileByDate[sessionType.lensProfileId][date] & availableSlots
+        });
     }
 
     function _lockSlots(

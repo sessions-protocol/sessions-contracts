@@ -8,11 +8,11 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0xF3bF2EA8Df05716a2e5EC39A747Cb54726a49fcE"
+    "0xf19C27C92EEA361F8e2FD246283CD058e4d78F00"
   );
 
   const sessionNFTImpl = utils.getAddress(
-    "0x4da9f0bBe8701DB748496BF3eE1860c82E5Ce071"
+    "0x6dd7ff928757E839D0A8B11d59BDaD0AB2c0D584"
   );
 
   const contract = new hre.ethers.Contract(
