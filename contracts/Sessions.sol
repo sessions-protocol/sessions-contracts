@@ -139,14 +139,18 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         return true;
     }
 
-    function _checkFollowValidity(uint256 lensProfileId, address user) internal view {
+    function checkFollowValidity(uint256 lensProfileId, address user) public view returns (bool) {
         address followModule = ILensHub(LENS_HUB).getFollowModule(lensProfileId);
         if (followModule != address(0)) {
-            IFollowModule(followModule).validateFollow(lensProfileId, user, 0);
+            try IFollowModule(followModule).validateFollow(lensProfileId, user, 0) {
+                return true;
+            } catch (bytes memory) {
+                return false;
+            }
         } else {
             address followNFT = ILensHub(LENS_HUB).getFollowNFT(lensProfileId);
-            require(followNFT != address(0), "!followNFT"); 
-            require(IERC721(followNFT).balanceOf(user) > 0, "!followNFT");
+            if (followNFT != address(0)) return false;
+            if (IERC721(followNFT).balanceOf(user) > 0) return true;
         }
     }
 
@@ -342,7 +346,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         require(timestamp < block.timestamp + sessionType.openBookingDeltaDays * 86400, "too early");
 
         if (sessionType.validateFollow) {
-            _checkFollowValidity(sessionType.lensProfileId, msg.sender);
+            require(checkFollowValidity(sessionType.lensProfileId, msg.sender), "!needFollow");
         }
         uint256 date = (timestamp / 86400) * 86400;
         uint8 startSlot = uint8((timestamp - date) / SLOT_DURATION);
