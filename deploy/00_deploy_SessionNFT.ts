@@ -7,7 +7,7 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
 
   const { deployer } = await getNamedAccounts();
 
-  const sessions = "0x3a0494b31EE26705a8Cca6f42703Ec70E45b016a";
+  const sessions = "0xF3bF2EA8Df05716a2e5EC39A747Cb54726a49fcE";
 
   await deploy('SessionNFT', {
     from: deployer,

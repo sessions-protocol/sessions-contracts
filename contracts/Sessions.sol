@@ -344,7 +344,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         for (uint8 i = 0; i <= len; i++) {
             uint8 index = startSlot + i;
             require(
-                !_isBitSet(calendar, index) &&
+                !_isBitSet(_calendar, index) &&
                 _isBitSet(availabilityByProfileByDay, index)
             , "!availableSlot");
             _calendar = _calendar | (uint256(1) << index);
