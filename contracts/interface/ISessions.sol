@@ -6,10 +6,12 @@ struct SessionType {
     uint32 id;
     address payable recipient;
     uint8 durationInSlot;
+    uint32 openBookingDeltaDays;
     string title;
     string description;
     bool archived;
     bool locked;
+    bool validateFollow;
     uint32 availabilityId;
     address token;
     uint256 amount;
@@ -20,6 +22,7 @@ struct SessionType {
 struct SessionTypeData {
     address payable recipient;
     uint8 durationInSlot;
+    uint32 openBookingDeltaDays;
     uint32 availabilityId;
     string title;
     string description;
@@ -27,6 +30,7 @@ struct SessionTypeData {
     address token;
     uint256 amount;
     bool locked;
+    bool validateFollow;
 }
 
 struct Session {

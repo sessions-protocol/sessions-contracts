@@ -10,6 +10,7 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 
 import "./Treasury.sol";
@@ -17,6 +18,7 @@ import "./interface/ISessions.sol";
 import "./interface/ISessionNFT.sol";
 import "./interface/ILensHub.sol";
 import "./interface/ILensHubNFT.sol";
+import "./interface/IFollowModule.sol";
 
 contract Sessions is ISessions, Treasury, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -27,14 +29,14 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
 
     string internal constant SESSION_NFT_NAME_INFIX = "-Session-";
     string internal constant SESSION_NFT_SYMBOL_INFIX = "-S-";
-    uint256 constant SLOT_DURATION = 6;
+    uint256 constant SLOT_DURATION = 6 * 60; // 6 minutes
 
     // Profile -> date -> slots, 6 minutes per slot, 240 bits for a day
     // 0 -> unlock, 1 -> locked
-    mapping(uint256 => mapping(uint256 => uint256)) private calendarByProfileByDate;
-    mapping(uint256 => SessionType[]) private sessionTypeByProfile;
-    mapping(uint256 => Availability[]) private availabilityByProfile;
-    mapping(uint256 => mapping(uint256 => Session)) private sessionByProfileByNFT;
+    mapping(uint256 => mapping(uint256 => uint256)) public calendarByProfileByDate;
+    mapping(uint256 => SessionType[]) public sessionTypeByProfile;
+    mapping(uint256 => Availability[]) public availabilityByProfile;
+    mapping(uint256 => mapping(uint256 => Session)) public sessionByProfileByNFT;
     constructor(address _lensHub, address _sessionNFTImpl, address _gov) {
         gov = _gov;
         LENS_HUB = _lensHub;
@@ -126,6 +128,17 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         return true;
     }
 
+    function _checkFollowValidity(uint256 lensProfileId, address user) internal view {
+        address followModule = ILensHub(LENS_HUB).getFollowModule(lensProfileId);
+        if (followModule != address(0)) {
+            IFollowModule(followModule).validateFollow(lensProfileId, user, 0);
+        } else {
+            address followNFT = ILensHub(LENS_HUB).getFollowNFT(lensProfileId);
+            require(followNFT != address(0), "!followNFT"); 
+            require(IERC721(followNFT).balanceOf(user) > 0, "!followNFT");
+        }
+    }
+
     function createSessionType(
         uint256 lensProfileId,
         SessionTypeData calldata data
@@ -148,9 +161,11 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
             recipient: data.recipient,
             durationInSlot: data.durationInSlot,
             availabilityId: data.availabilityId,
+            openBookingDeltaDays: data.openBookingDeltaDays,
             title: data.title,
             description: data.description,
             archived: false,
+            validateFollow: data.validateFollow,
             locked: data.locked,
             token: data.token,
             amount: data.amount,
@@ -219,7 +234,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         external
         isOwenrOrDispatcher(lensProfileId)
     {
-        require(id <= sessionTypeByProfile[lensProfileId].length, "!availabilityId");
+        require(id <= sessionTypeByProfile[lensProfileId].length, "!sessionTypeId");
         sessionTypeByProfile[lensProfileId][id - 1].archived = true;
     }
 
@@ -228,7 +243,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         view
         returns (SessionType memory)
     {
-        require(id <= sessionTypeByProfile[lensProfileId].length, "!availabilityId");
+        require(id <= sessionTypeByProfile[lensProfileId].length, "!sessionTypeId");
         return sessionTypeByProfile[lensProfileId][id - 1];
     }
 
@@ -252,17 +267,21 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         uint32 sessionTypeId
     ) external payable nonReentrant {
         require(timestamp > block.timestamp, "!inFeature");
+
         SessionType memory sessionType = getSessionType(lensProfileId, sessionTypeId);
         require(
             sessionType.archived == false,
             "sessionType archived"
         );
+        if (sessionType.validateFollow) {
+            _checkFollowValidity(lensProfileId, msg.sender);
+        }
         uint256 date = (timestamp / 86400) * 86400;
         uint8 startSlot = uint8((timestamp - date) / SLOT_DURATION);
 
-        uint256 availableSlots = availabilityByProfile[lensProfileId][
+        uint256 availableSlots = sessionType.availabilityId > 0 ? availabilityByProfile[lensProfileId][
             sessionType.availabilityId - 1
-        ].availableSlots[_getWeekday(date)];
+        ].availableSlots[_getWeekday(date)] : type(uint256).max;
 
         // lock slots
         calendarByProfileByDate[lensProfileId][date] = _lockSlots(
