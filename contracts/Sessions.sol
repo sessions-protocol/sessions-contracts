@@ -65,9 +65,10 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         _;
     }
 
-    function initialize(address _sessionNFTImpl, address _gov) public initializer {
+    function initialize(address _sessionNFTImpl, address _gov, address payable _treasury) public initializer {
         sessionNFTImpl = _sessionNFTImpl;
         gov = _gov;
+        treasury = _treasury;
     }
 
     function _isLensProfileOwenrOrDispatcher(uint256 lensProfileId) internal {
