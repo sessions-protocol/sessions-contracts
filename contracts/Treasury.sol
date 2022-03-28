@@ -27,4 +27,6 @@ contract Treasury {
         require(token != address(0));
         tokenWhitelisted[token] = toWhitelist;
     }
+
+    uint256[240] private __gap;
 }

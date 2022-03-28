@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import "./Treasury.sol";
 import "./interface/ISessions.sol";
@@ -20,7 +21,7 @@ import "./interface/ILensHub.sol";
 import "./interface/ILensHubNFT.sol";
 import "./interface/IFollowModule.sol";
 
-contract Sessions is ISessions, Treasury, ReentrancyGuard {
+contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
     using SafeERC20 for IERC20;
     using Strings for uint256;
 
@@ -43,10 +44,8 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
     mapping(uint256 => uint256) public availabilityOwner;
     mapping(uint256 => uint256[]) public availabilitysOwnedByProfile;
     mapping(uint256 => mapping(uint256 => Session)) public sessionBySessionTypeByNFT;
-    constructor(address _lensHub, address _sessionNFTImpl, address _gov) {
-        gov = _gov;
+    constructor(address _lensHub) {
         LENS_HUB = _lensHub;
-        sessionNFTImpl = _sessionNFTImpl;
     }
 
     modifier isOwenrOrDispatcher(uint256 lensProfileId) {
@@ -64,6 +63,11 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         uint256 lensProfileId = availabilityOwner[availabilityId];
         _isLensProfileOwenrOrDispatcher(lensProfileId);
         _;
+    }
+
+    function initialize(address _sessionNFTImpl, address _gov) public initializer {
+        sessionNFTImpl = _sessionNFTImpl;
+        gov = _gov;
     }
 
     function _isLensProfileOwenrOrDispatcher(uint256 lensProfileId) internal {
@@ -356,12 +360,32 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard {
         ].availableSlots[_getWeekday(date)] : type(uint256).max;
 
         // lock slots
-        calendarByProfileByDate[sessionType.lensProfileId][date] = _lockSlots(
-            calendarByProfileByDate[sessionType.lensProfileId][date],
-            availableSlots,
-            startSlot,
-            startSlot + sessionType.durationInSlot
-        );
+        if (startSlot + sessionType.durationInSlot > 240) {
+            // first day
+            calendarByProfileByDate[sessionType.lensProfileId][date] = _lockSlots(
+                calendarByProfileByDate[sessionType.lensProfileId][date],
+                availableSlots,
+                startSlot,
+                240
+            );
+            // next day
+            uint256 nextDate = date + 86400;
+            uint256 nextDateAvailableSlots = sessionType.availabilityId > 0 ? availabilitys[sessionType.availabilityId - 1].availableSlots[_getWeekday(nextDate)] : type(uint256).max;
+            calendarByProfileByDate[sessionType.lensProfileId][nextDate] = _lockSlots(
+                calendarByProfileByDate[sessionType.lensProfileId][nextDate],
+                nextDateAvailableSlots,
+                0,
+                startSlot + sessionType.durationInSlot - 240
+            );
+        } else {
+            calendarByProfileByDate[sessionType.lensProfileId][date] = _lockSlots(
+                calendarByProfileByDate[sessionType.lensProfileId][date],
+                availableSlots,
+                startSlot,
+                startSlot + sessionType.durationInSlot
+            );
+        }
+        
         _pay(sessionType);
         // mint
         uint256 sessionNFTId = ISessionNFT(sessionType.sessionNFT).mint(msg.sender);

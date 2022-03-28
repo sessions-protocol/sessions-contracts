@@ -8,13 +8,11 @@ const func: DeployFunction = async function (hre: HardhatRuntimeEnvironment) {
   const { deployer } = await getNamedAccounts();
 
   const lensHub = "0xd7B3481De00995046C7850bCe9a5196B7605c367";
-  const sessionNFTImpl = "0x0000000000000000000000000000000000000000";
-
-  const gov = deployer;
   
   await deploy('Sessions', {
     from: deployer,
-    args: [lensHub, sessionNFTImpl, gov],
+    args: [lensHub],
+    proxy: true,
     log: true
   })
 

@@ -8,11 +8,11 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0x54f6Fb3E799ed5A1FedeeF26E647801911BcB36d"
+    "0xD25bB78d4750458BC564b21FbfF3566294FAF560"
   );
 
   const sessionNFTImpl = utils.getAddress(
-    "0xE520C6549f81d13903B17400b405f041Bb0936Ad"
+    "0x69129Ea5Ef74C2c2F769603a594017Ec8a4B5B26"
   );
 
   const contract = new hre.ethers.Contract(
@@ -21,8 +21,8 @@ async function main() {
     signer
   );
 
-  const calldata = [sessionNFTImpl];
-  const tx = await contract.setSessionNFTImpl(...calldata);
+  const calldata = [sessionNFTImpl, deployer];
+  const tx = await contract.initialize(...calldata);
   await tx.wait();
   console.log(tx);
 }
