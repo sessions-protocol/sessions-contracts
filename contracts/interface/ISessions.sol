@@ -15,7 +15,7 @@ struct SessionType {
     uint256 amount;
     address sessionNFT;
     uint256 availabilityId;
-    uint256 lensProfileId;
+    uint256 profileId;
 }
 
 struct SessionAvailability {
@@ -58,7 +58,7 @@ interface ISessions {
     ) external payable;
 
     function createSessionType(
-        uint256 lensProfileId,
+        uint256 profileId,
         SessionTypeData calldata data
     ) external returns (uint256 sessionTypeId);
 
