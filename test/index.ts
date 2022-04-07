@@ -57,6 +57,11 @@ describe("Sessions Profile", function () {
     await expect(
       sessionProfile
         .connect(user2)
+        .createProfile("", "", { from: user2.address })
+    ).to.be.revertedWith("HandleLengthInvalid()");
+    await expect(
+      sessionProfile
+        .connect(user2)
         .createProfile("x".repeat(32), "", { from: user2.address })
     ).to.be.revertedWith("HandleLengthInvalid()");
     await expect(

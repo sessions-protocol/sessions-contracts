@@ -8,7 +8,7 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0xD25bB78d4750458BC564b21FbfF3566294FAF560"
+    "0x82295BB8f16a5910303B214B5e4a844eF3091381"
   );
 
   const sessionNFTImpl = utils.getAddress(
@@ -21,7 +21,7 @@ async function main() {
     signer
   );
 
-  const calldata = [sessionNFTImpl, deployer];
+  const calldata = [sessionNFTImpl, deployer, deployer];
   const tx = await contract.initialize(...calldata);
   await tx.wait();
   console.log(tx);

@@ -8,7 +8,7 @@ async function main() {
   const signer = await ethers.getSigner(deployer);
 
   const Sessions = utils.getAddress(
-    "0xD25bB78d4750458BC564b21FbfF3566294FAF560"
+    "0x82295BB8f16a5910303B214B5e4a844eF3091381"
   );
 
   const contract = new hre.ethers.Contract(
@@ -17,7 +17,11 @@ async function main() {
     signer
   );
 
-  const calldata = ["0x0000000000000000000000000000000000000000", true];
+  /**
+   * 0x326C977E6efc84E512bB9C30f76E30c160eD06FB  LIN
+   * 0x001B3B4d0F3714Ca98ba10F6042DaEbF0B1B7b6F  DAI
+   */
+  const calldata = ["0x001B3B4d0F3714Ca98ba10F6042DaEbF0B1B7b6F", true];
   const tx = await contract.whitelistCurrency(...calldata);
   await tx.wait();
   console.log(tx);
