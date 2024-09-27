@@ -43,7 +43,7 @@ const config: HardhatUserConfig = {
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
     },
     mumbai: {
-      url: `https://matic-testnet-archive-rpc.bwarelabs.com`,
+      url: `https://rpc-mumbai.maticvigil.com/`,
       chainId: 80001,
       accounts:
         process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],

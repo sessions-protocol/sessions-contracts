@@ -17,15 +17,13 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "./Treasury.sol";
 import "./interface/ISessions.sol";
 import "./interface/ISessionNFT.sol";
-import "./interface/ILensHub.sol";
-import "./interface/ILensHubNFT.sol";
-import "./interface/IFollowModule.sol";
+import "./interface/ISessionProfile.sol";
 
 contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
     using SafeERC20 for IERC20;
     using Strings for uint256;
 
-    address public immutable LENS_HUB;
+    address public immutable SESSION_PROFILE;
     address public sessionNFTImpl;
 
     string internal constant SESSION_NFT_NAME_INFIX = "-Session-";
@@ -44,24 +42,24 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
     mapping(uint256 => uint256) public availabilityOwner;
     mapping(uint256 => uint256[]) public availabilitysOwnedByProfile;
     mapping(uint256 => mapping(uint256 => Session)) public sessionBySessionTypeByNFT;
-    constructor(address _lensHub) {
-        LENS_HUB = _lensHub;
+    constructor(address session_profile) {
+        SESSION_PROFILE = session_profile;
     }
 
-    modifier isOwenrOrDispatcher(uint256 lensProfileId) {
-        _isLensProfileOwenrOrDispatcher(lensProfileId);
+    modifier isOwner(uint256 profileId) {
+        _isProfileOwner(profileId);
         _;
     }
 
-    modifier isOwenrOrDispatcherBySessionTypeId(uint256 sessionTypeId) {
-        uint256 lensProfileId = sessionTypeOwner[sessionTypeId];
-        _isLensProfileOwenrOrDispatcher(lensProfileId);
+    modifier isOwnerBySessionTypeId(uint256 sessionTypeId) {
+        uint256 profileId = sessionTypeOwner[sessionTypeId];
+        _isProfileOwner(profileId);
         _;
     }
 
-     modifier isOwenrOrDispatcherByAvailabilityId(uint256 availabilityId) {
-        uint256 lensProfileId = availabilityOwner[availabilityId];
-        _isLensProfileOwenrOrDispatcher(lensProfileId);
+     modifier isOwnerByAvailabilityId(uint256 availabilityId) {
+        uint256 profileId = availabilityOwner[availabilityId];
+        _isProfileOwner(profileId);
         _;
     }
 
@@ -71,10 +69,9 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         treasury = _treasury;
     }
 
-    function _isLensProfileOwenrOrDispatcher(uint256 lensProfileId) internal {
-        address dispatcher = ILensHub(LENS_HUB).getDispatcher(lensProfileId);
-        address owner = ILensHubNFT(LENS_HUB).ownerOf(lensProfileId);
-        require(owner == msg.sender || msg.sender == dispatcher, "NOT_PROFILE_OWNER_OR_DISPATCHER");
+    function _isProfileOwner(uint256 profileId) internal view {
+        address owner = ISessionProfile(SESSION_PROFILE).ownerOf(profileId);
+        require(owner == msg.sender, "NOT_PROFILE_OWNER");
     }
 
     function setSessionNFTImpl(address _sessionNFTImpl) external onlyGov {
@@ -82,10 +79,10 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
     }
 
     function createAvailability(
-        uint256 lensProfileId,
+        uint256 profileId,
         string memory name,
         uint256[7] calldata availableSlots
-    ) external isOwenrOrDispatcher(lensProfileId) {
+    ) external isOwner(profileId) {
         uint256 availabilityId = availabilitys.length + 1;
         availabilitys.push(
             Availability({
@@ -94,15 +91,15 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
                 archived: false
             })
         );
-        availabilityOwner[availabilityId] = lensProfileId;
-        availabilitysOwnedByProfile[lensProfileId].push(availabilityId);
+        availabilityOwner[availabilityId] = profileId;
+        availabilitysOwnedByProfile[profileId].push(availabilityId);
     }
 
     function archivedAvailability(
         uint256 availabilityId
     )
         external
-        isOwenrOrDispatcherByAvailabilityId(availabilityId)
+        isOwnerByAvailabilityId(availabilityId)
     {
         availabilitys[availabilityId-1].archived = true;
     }
@@ -122,7 +119,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         bool archived
     )
         external
-        isOwenrOrDispatcherByAvailabilityId(availabilityId)
+        isOwnerByAvailabilityId(availabilityId)
     {
         availabilitys[availabilityId - 1] = Availability({
             availableSlots: availableSlots,
@@ -139,39 +136,24 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
     {
         if (sessionType.token != address(0) && !tokenWhitelisted[sessionType.token]) return false;
         if (sessionType.recipient == address(0)) return false;
-        if (sessionType.availabilityId > 0 && availabilityOwner[sessionType.availabilityId] != sessionType.lensProfileId)
+        if (sessionType.availabilityId > 0 && availabilityOwner[sessionType.availabilityId] != sessionType.profileId)
             return false;
         return true;
     }
 
-    function checkFollowValidity(uint256 lensProfileId, address user) public view returns (bool) {
-        address followModule = ILensHub(LENS_HUB).getFollowModule(lensProfileId);
-        if (followModule != address(0)) {
-            try IFollowModule(followModule).validateFollow(lensProfileId, user, 0) {
-                return true;
-            } catch (bytes memory) {
-                return false;
-            }
-        } else {
-            address followNFT = ILensHub(LENS_HUB).getFollowNFT(lensProfileId);
-            if (followNFT == address(0)) return false;
-            if (IERC721(followNFT).balanceOf(user) > 0) return true;
-        }
-    }
-
     function createSessionType(
-        uint256 lensProfileId,
+        uint256 profileId,
         SessionTypeData calldata data
     ) 
         external
         nonReentrant
-        isOwenrOrDispatcher(lensProfileId)
+        isOwner(profileId)
         returns (uint256 sessionTypeId)
     {
         sessionTypeId = sessionTypes.length + 1;
         
         address sessionNFT = createSessionNFT(
-            lensProfileId,
+            profileId,
             sessionTypeId,
             data.title
         );
@@ -189,21 +171,21 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
             token: data.token,
             amount: data.amount,
             sessionNFT: sessionNFT,
-            lensProfileId: lensProfileId
+            profileId: profileId
         });
         require(_validateSessionType(sessionType), "invalid sessionType");
 
         sessionTypes.push(sessionType);
-        sessionTypeOwner[sessionTypeId] = lensProfileId;
-        sessionTypesOwnedByProfile[lensProfileId].push(sessionTypeId);
+        sessionTypeOwner[sessionTypeId] = profileId;
+        sessionTypesOwnedByProfile[profileId].push(sessionTypeId);
     }
 
     function createSessionNFT(
-        uint256 lensProfileId,
+        uint256 profileId,
         uint256 sessionTypeId,
         string calldata title
     ) internal returns (address sessionNFT) {
-        DataTypes.ProfileStruct memory profile = ILensHub(LENS_HUB).getProfile(lensProfileId);
+        ProfileStruct memory profile = ISessionProfile(SESSION_PROFILE).getProfileById(profileId);
         string memory handle = profile.handle;
         bytes4 firstBytes = bytes4(bytes(handle));
 
@@ -220,7 +202,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
 
         sessionNFT = Clones.clone(sessionNFTImpl);
         ISessionNFT(sessionNFT).initialize(
-            lensProfileId,
+            profileId,
             sessionTypeId,
             sessionNFTName,
             sessionNFTSymbol
@@ -251,7 +233,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         uint256 sessionTypeId
     )
         external
-        isOwenrOrDispatcherBySessionTypeId(sessionTypeId)
+        isOwnerBySessionTypeId(sessionTypeId)
     {
         sessionTypes[sessionTypeId - 1].archived = true;
     }
@@ -286,7 +268,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         return sessionAvailabilitys;
     }
 
-    function getSessionTypesByProfile(uint256 lensProfileId)
+    function getSessionTypesByProfile(uint256 profileId)
         external
         view
         returns (
@@ -295,7 +277,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         )
     {
         uint256[] memory sessionTypeIds = sessionTypesOwnedByProfile[
-            lensProfileId
+            profileId
         ];
         SessionType[] memory sessionTypesByProfile = new SessionType[](
             sessionTypeIds.length
@@ -306,7 +288,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         return (sessionTypeIds, sessionTypesByProfile);
     }
 
-    function getAvailablitysByProfile(uint256 lensProfileId)
+    function getAvailablitysByProfile(uint256 profileId)
         external
         view
         returns (
@@ -315,7 +297,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         )
     {
         uint256[] memory availabilityIds = availabilitysOwnedByProfile[
-            lensProfileId
+            profileId
         ];
         Availability[] memory availabilitysByProfile = new Availability[](
             availabilityIds.length
@@ -331,7 +313,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         SessionType calldata sessionType
     )
         external
-        isOwenrOrDispatcherBySessionTypeId(sessionTypeId)
+        isOwnerBySessionTypeId(sessionTypeId)
     {
         require(_validateSessionType(sessionType), "invalid sessionType");
         sessionTypes[sessionTypeId - 1] = sessionType;
@@ -350,9 +332,6 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         );
         require(timestamp < block.timestamp + sessionType.openBookingDeltaDays * 86400, "too early");
 
-        if (sessionType.validateFollow) {
-            require(checkFollowValidity(sessionType.lensProfileId, msg.sender), "!needFollow");
-        }
         uint256 date = (timestamp / 86400) * 86400;
         uint8 startSlot = uint8((timestamp - date) / SLOT_DURATION);
 
@@ -363,8 +342,8 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
         // lock slots
         if (startSlot + sessionType.durationInSlot > 240) {
             // first day
-            calendarByProfileByDate[sessionType.lensProfileId][date] = _lockSlots(
-                calendarByProfileByDate[sessionType.lensProfileId][date],
+            calendarByProfileByDate[sessionType.profileId][date] = _lockSlots(
+                calendarByProfileByDate[sessionType.profileId][date],
                 availableSlots,
                 startSlot,
                 240
@@ -372,15 +351,15 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
             // next day
             uint256 nextDate = date + 86400;
             uint256 nextDateAvailableSlots = sessionType.availabilityId > 0 ? availabilitys[sessionType.availabilityId - 1].availableSlots[_getWeekday(nextDate)] : type(uint256).max;
-            calendarByProfileByDate[sessionType.lensProfileId][nextDate] = _lockSlots(
-                calendarByProfileByDate[sessionType.lensProfileId][nextDate],
+            calendarByProfileByDate[sessionType.profileId][nextDate] = _lockSlots(
+                calendarByProfileByDate[sessionType.profileId][nextDate],
                 nextDateAvailableSlots,
                 0,
                 startSlot + sessionType.durationInSlot - 240
             );
         } else {
-            calendarByProfileByDate[sessionType.lensProfileId][date] = _lockSlots(
-                calendarByProfileByDate[sessionType.lensProfileId][date],
+            calendarByProfileByDate[sessionType.profileId][date] = _lockSlots(
+                calendarByProfileByDate[sessionType.profileId][date],
                 availableSlots,
                 startSlot,
                 startSlot + sessionType.durationInSlot
@@ -431,7 +410,7 @@ contract Sessions is ISessions, Treasury, ReentrancyGuard, Initializable {
 
         return SessionAvailability({
             date: date, 
-            availableSlot: ~calendarByProfileByDate[sessionType.lensProfileId][date] & availableSlots
+            availableSlot: ~calendarByProfileByDate[sessionType.profileId][date] & availableSlots
         });
     }
 
